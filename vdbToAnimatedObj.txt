@@ -1,0 +1,96 @@
+import bpy
+import os
+
+# Répertoire de base à adapter
+base_output = "C:/Users/Agnis/Documents/blender_exports"
+stl_dir = os.path.join(base_output, "stl")
+obj_dir = os.path.join(base_output, "obj")
+
+os.makedirs(stl_dir, exist_ok=True)
+os.makedirs(obj_dir, exist_ok=True)
+
+scene = bpy.context.scene
+start_frame = scene.frame_start
+end_frame = scene.frame_end
+
+obj = bpy.context.active_object
+if not obj:
+    raise Exception("Aucun objet sélectionné.")
+object_name = obj.name
+
+# Contexte override pour certains opérateurs
+view_3d_area = next((a for a in bpy.context.window.screen.areas if a.type == 'VIEW_3D'), None)
+if not view_3d_area:
+    raise RuntimeError("Aucune zone VIEW_3D trouvée. Ouvre une vue 3D.")
+
+region = next((r for r in view_3d_area.regions if r.type == 'WINDOW'), None)
+if not region:
+    raise RuntimeError("Aucune région WINDOW trouvée dans la vue 3D.")
+
+override = {
+    'window': bpy.context.window,
+    'screen': bpy.context.screen,
+    'area': view_3d_area,
+    'region': region,
+    'scene': scene,
+    'view_layer': bpy.context.view_layer
+}
+
+print("🔄 Export STL par frame...")
+
+for frame in range(start_frame, end_frame + 1):
+    scene.frame_set(frame)
+    bpy.ops.object.select_all(action='DESELECT')
+
+    obj = bpy.data.objects.get(object_name)
+    if not obj:
+        print(f"⚠️ Objet {object_name} introuvable à la frame {frame}.")
+        continue
+
+    if obj.mode != 'OBJECT':
+        bpy.ops.object.mode_set(mode='OBJECT')
+
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
+
+    bpy.ops.object.duplicate()
+    dup = bpy.context.active_object
+    bpy.ops.object.convert(target='MESH')
+
+    stl_path = os.path.join(stl_dir, f"frame_{frame:04d}.stl")
+
+    with bpy.context.temp_override(**override):
+        bpy.ops.wm.stl_export(filepath=stl_path)
+
+    bpy.ops.object.delete()
+    print(f"✅ Frame {frame} exportée en STL.")
+
+print("✅ Phase 1 terminée : STL exportés.\n")
+
+print("🔁 Conversion STL → OBJ avec dossiers dédiés...")
+
+for frame in range(start_frame, end_frame + 1):
+    stl_path = os.path.join(stl_dir, f"frame_{frame:04d}.stl")
+
+    # Nouveau : répertoire par frame
+    obj_frame_dir = os.path.join(obj_dir, f"frame_{frame:04d}")
+    os.makedirs(obj_frame_dir, exist_ok=True)
+
+    obj_path = os.path.join(obj_frame_dir, f"frame_{frame:04d}.obj")
+
+    with bpy.context.temp_override(**override):
+        bpy.ops.wm.stl_import(filepath=stl_path)
+
+    imported = bpy.context.selected_objects[0]
+
+    bpy.ops.object.select_all(action='DESELECT')
+    imported.select_set(True)
+    bpy.context.view_layer.objects.active = imported
+
+    with bpy.context.temp_override(**override):
+        bpy.ops.wm.obj_export(filepath=obj_path)
+
+    bpy.ops.object.delete()
+    print(f"📁 Frame {frame} → {obj_path}")
+
+print("\n🎉 Export terminé. Tous les OBJ sont organisés par dossier.")

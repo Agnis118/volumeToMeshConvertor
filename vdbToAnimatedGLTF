@@ -1,0 +1,122 @@
+import bpy
+import os
+
+# Répertoire de base
+base_output = "C:/Users/Agnis/Documents/blender_exports"
+stl_dir = os.path.join(base_output, "stl")
+glb_dir = os.path.join(base_output, "glb")
+os.makedirs(stl_dir, exist_ok=True)
+os.makedirs(glb_dir, exist_ok=True)
+
+scene = bpy.context.scene
+start_frame = scene.frame_start
+end_frame = scene.frame_end
+
+obj = bpy.context.active_object
+if not obj:
+    raise Exception("Aucun objet sélectionné.")
+object_name = obj.name
+
+# Contexte override
+view_3d_area = next((a for a in bpy.context.window.screen.areas if a.type == 'VIEW_3D'), None)
+region = next((r for r in view_3d_area.regions if r.type == 'WINDOW'), None)
+override = {
+    'window': bpy.context.window,
+    'screen': bpy.context.screen,
+    'area': view_3d_area,
+    'region': region,
+    'scene': scene,
+    'view_layer': bpy.context.view_layer
+}
+
+# --- Phase 1 : Export STL par frame ---
+print("🔄 Export STL par frame...")
+for frame in range(start_frame, end_frame + 1):
+    scene.frame_set(frame)
+    bpy.ops.object.select_all(action='DESELECT')
+
+    obj = bpy.data.objects.get(object_name)
+    if not obj:
+        print(f"⚠️ Objet {object_name} introuvable à la frame {frame}.")
+        continue
+
+    if obj.mode != 'OBJECT':
+        bpy.ops.object.mode_set(mode='OBJECT')
+
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
+
+    bpy.ops.object.duplicate()
+    dup = bpy.context.active_object
+    bpy.ops.object.convert(target='MESH')
+
+    stl_path = os.path.join(stl_dir, f"frame_{frame:04d}.stl")
+    with bpy.context.temp_override(**override):
+        bpy.ops.wm.stl_export(filepath=stl_path)
+
+    bpy.ops.object.delete()
+    print(f"✅ Frame {frame} exportée en STL.")
+
+print("✅ Phase 1 terminée : STL exportés.\n")
+
+# --- Phase 2 : Import STL + création armature + animation ---
+print("🔄 Import STL et création animation bones...")
+
+bpy.ops.object.select_all(action='DESELECT')
+armature = bpy.data.armatures.new("AnimArmature")
+armature_obj = bpy.data.objects.new("AnimArmatureObj", armature)
+bpy.context.collection.objects.link(armature_obj)
+bpy.context.view_layer.objects.active = armature_obj
+armature_obj.select_set(True)
+
+bpy.ops.object.mode_set(mode='EDIT')
+edit_bones = armature.edit_bones
+frame_bones = []
+
+for frame in range(start_frame, end_frame + 1):
+    stl_path = os.path.join(stl_dir, f"frame_{frame:04d}.stl")
+    
+    with bpy.context.temp_override(**override):
+        bpy.ops.wm.stl_import(filepath=stl_path)
+    
+    imported_obj = bpy.context.selected_objects[0]
+    imported_obj.name = f"frameObj_{frame:04d}"
+    
+    # Crée un bone par frame
+    bone = edit_bones.new(f"frameBone_{frame:04d}")
+    bone.head = (0,0,0)
+    bone.tail = (0,0,1)
+    frame_bones.append((bone, imported_obj))
+    
+    # Parent STL à ce bone
+    imported_obj.parent = armature_obj
+    imported_obj.parent_type = 'BONE'
+    imported_obj.parent_bone = bone.name
+    imported_obj.matrix_parent_inverse.identity()
+
+bpy.ops.object.mode_set(mode='OBJECT')
+
+# --- Phase 3 : Animation scale ---
+for frame in range(start_frame, end_frame + 1):
+    scene.frame_set(frame)
+    for idx, (bone, obj_ref) in enumerate(frame_bones):
+        scale_val = 1.0 if idx == (frame - start_frame) else 0.0
+        obj_ref.scale = (scale_val, scale_val, scale_val)
+        obj_ref.keyframe_insert(data_path="scale", index=-1)
+
+# --- Phase 4 : Export GLB animé ---
+glb_path = os.path.join(glb_dir, "animated_scene.glb")
+bpy.ops.object.select_all(action='DESELECT')
+armature_obj.select_set(True)
+
+bpy.context.view_layer.objects.active = armature_obj
+with bpy.context.temp_override(**override):
+    bpy.ops.export_scene.gltf(
+        filepath=glb_path,
+        export_format='GLB',
+        export_animation=True,
+        export_animation_mode='SCENE',
+        export_anim_scene_split_object=False
+        # plus besoin de export_animation
+    )
+print(f"🎉 Export terminé : {glb_path}")

@@ -1,5 +1,6 @@
 import bpy
 import os
+import math
 
 # Répertoire de base
 base_output = "C:/Users/Agnis/Documents/blender_exports"
@@ -10,7 +11,7 @@ os.makedirs(glb_dir, exist_ok=True)
 
 scene = bpy.context.scene
 start_frame = scene.frame_start
-end_frame = scene.frame_end
+end_frame = 20 #scene.frame_end
 
 obj = bpy.context.active_object
 if not obj:
@@ -66,6 +67,10 @@ bpy.ops.object.select_all(action='DESELECT')
 armature = bpy.data.armatures.new("AnimArmature")
 armature_obj = bpy.data.objects.new("AnimArmatureObj", armature)
 bpy.context.collection.objects.link(armature_obj)
+
+# rotation -90° sur X
+armature_obj.rotation_euler = (math.radians(-90), 0, 0)
+
 bpy.context.view_layer.objects.active = armature_obj
 armature_obj.select_set(True)
 
@@ -96,13 +101,30 @@ for frame in range(start_frame, end_frame + 1):
 
 bpy.ops.object.mode_set(mode='OBJECT')
 
-# --- Phase 3 : Animation scale ---
+# --- Phase 3 : Animation scale (une seule frame visible) ---
+
 for frame in range(start_frame, end_frame + 1):
+
     scene.frame_set(frame)
+
     for idx, (bone, obj_ref) in enumerate(frame_bones):
-        scale_val = 1.0 if idx == (frame - start_frame) else 0.0
+
+        visible = (frame == start_frame + idx)
+
+        scale_val = 1.0 if visible else 0.0
         obj_ref.scale = (scale_val, scale_val, scale_val)
-        obj_ref.keyframe_insert(data_path="scale", index=-1)
+
+        obj_ref.keyframe_insert(
+            data_path="scale",
+            frame=frame
+        )
+
+
+# interpolation CONSTANT
+for action in bpy.data.actions:
+    for fcurve in action.fcurves:
+        for keyframe in fcurve.keyframe_points:
+            keyframe.interpolation = 'CONSTANT'
 
 # --- Phase 4 : Export GLB animé ---
 glb_path = os.path.join(glb_dir, "animated_scene.glb")
@@ -114,9 +136,10 @@ with bpy.context.temp_override(**override):
     bpy.ops.export_scene.gltf(
         filepath=glb_path,
         export_format='GLB',
-        export_animation=True,
         export_animation_mode='SCENE',
-        export_anim_scene_split_object=False
+        export_anim_scene_split_object=False,
+        export_optimize_animation_size=False,
+        export_sampling_interpolation_fallback = 'STEP'
         # plus besoin de export_animation
     )
 print(f"🎉 Export terminé : {glb_path}")

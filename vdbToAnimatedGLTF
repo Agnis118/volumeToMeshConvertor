@@ -11,7 +11,7 @@ os.makedirs(glb_dir, exist_ok=True)
 
 scene = bpy.context.scene
 start_frame = scene.frame_start
-end_frame = 20 #scene.frame_end
+end_frame = scene.frame_end
 
 obj = bpy.context.active_object
 if not obj:
@@ -119,13 +119,6 @@ for frame in range(start_frame, end_frame + 1):
             frame=frame
         )
 
-
-# interpolation CONSTANT
-for action in bpy.data.actions:
-    for fcurve in action.fcurves:
-        for keyframe in fcurve.keyframe_points:
-            keyframe.interpolation = 'CONSTANT'
-
 # --- Phase 4 : Export GLB animé ---
 glb_path = os.path.join(glb_dir, "animated_scene.glb")
 bpy.ops.object.select_all(action='DESELECT')
@@ -138,7 +131,7 @@ with bpy.context.temp_override(**override):
         export_format='GLB',
         export_animation_mode='SCENE',
         export_anim_scene_split_object=False,
-        export_optimize_animation_size=False,
+        #export_optimize_animation_size=False,
         export_sampling_interpolation_fallback = 'STEP'
         # plus besoin de export_animation
     )
